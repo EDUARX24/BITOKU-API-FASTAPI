@@ -1,0 +1,1 @@
+# Esquema Pydantic para User
