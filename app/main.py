@@ -1,4 +1,7 @@
-# Importa todos los modelos para que SQLAlchemy registre las relaciones correctamente
+
+# main.py: Punto de entrada de la aplicación FastAPI
+
+# Importa todos los modelos para que SQLAlchemy registre las relaciones y cree las tablas correctamente
 from app.models.usuario import Usuario
 from app.models.paciente import Paciente
 from app.models.doctor import Doctor
@@ -12,13 +15,16 @@ from app.models.apf import Apf
 from app.models.expediente import Expediente
 
 from fastapi import FastAPI
-from app.api.v1.endpoints import users, auth
+from app.api.v1.endpoints.auth import users
 
+# Instancia principal de la aplicación
 app = FastAPI()
 
+# Registro de routers para endpoints de usuarios y autenticación
 app.include_router(users.router, prefix="/api/auth", tags=["User"])
-app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
+# app.include_router(users.router, prefix="/api/auth", tags=["Auth"])
 
+# Permite ejecutar con 'python app/main.py' directamente
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
