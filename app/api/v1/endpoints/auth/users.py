@@ -62,7 +62,7 @@ class LoginRequest(BaseModel):
 	username: str
 	password: str
 
-
+#endpoint para loguear
 @router.post("/Login", tags=["User"])
 def login(login_req: LoginRequest, db: Session = Depends(get_db)):
 	user = db.query(Usuario).filter(Usuario.nombreUsuario == login_req.username).first()
@@ -100,7 +100,7 @@ def login(login_req: LoginRequest, db: Session = Depends(get_db)):
 			"token": access_token
 		}
 	}
-
+#endpoint para crear un usuario
 @router.post("/Register", response_model=UsuarioOut, status_code=status.HTTP_201_CREATED, tags=["User"])
 def register_user(user: UsuarioCreate, db: Session = Depends(get_db)):
 	db_user = db.query(Usuario).filter(Usuario.nombreUsuario == user.nombreUsuario).first()
@@ -119,7 +119,7 @@ def register_user(user: UsuarioCreate, db: Session = Depends(get_db)):
 
 # Endpoint para listar todos los usuarios registrados (requiere autenticación)
 @router.get("/List", response_model=list[UsuarioOut], tags=["User"])
-def list_users(
+def list_users(pageSize: int = 0, pageNumber: int = 1,
 	db: Session = Depends(get_db),
 	current_user: str = Security(get_current_user)
 ):
@@ -127,5 +127,12 @@ def list_users(
 	Devuelve una lista de todos los usuarios registrados en la base de datos.
 	Requiere autenticación mediante token Bearer.
 	"""
-	users = db.query(Usuario).all()
+	#agregar la paginacion
+	query = db.query(Usuario)
+
+	if pageSize > 0:
+		query = query.offset(pageSize * (pageNumber - 1)).limit(pageSize)
+
+	users = query.all()
 	return users
+

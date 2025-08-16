@@ -46,8 +46,8 @@ def eliminar_paciente(idPaciente: int, db: Session = Depends(get_db), current_us
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     # Verificar que el usuario tenga rol paciente
-    if usuario.rol != "ptn":
-        raise HTTPException(status_code=403, detail="Solo los usuarios con rol 'paciente' pueden eliminar su perfil de paciente")
+    if usuario.rol not in ["doc", "adm"]:
+        raise HTTPException(status_code=403, detail="Solo los usuarios con rol 'doctor' o 'admin' pueden eliminar su perfil de paciente")
     # Buscar el perfil de paciente
     paciente = db.query(Paciente).filter(Paciente.idPaciente == idPaciente).first()
     if not paciente:

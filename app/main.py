@@ -14,6 +14,8 @@ from app.models.expediente import Expediente
 from fastapi import FastAPI
 from app.api.v1.endpoints.auth import users
 from app.api.v1.endpoints.paciente import paciente
+from app.api.v1.endpoints.doctor import doctor
+
 
 # Instancia principal de la aplicación
 app = FastAPI(
@@ -22,13 +24,14 @@ app = FastAPI(
     version="1.0.0",
     contact={
         "name": "Soporte de Bitoku",
-        "email": "soporte@bitoku.com"
+        "email": "eduarfrancis11@gmail.com"
     }
 )
 
 # Registro de routers para endpoints de usuarios y autenticación
 app.include_router(users.router, prefix="/api/auth", tags=["User"])
 app.include_router(paciente.router, prefix="/api/ptn", tags=["Paciente"])
+app.include_router(doctor.router, prefix="/api/doc", tags=["Doctor"])
 
 # Permite ejecutar con 'python app/main.py' directamente
 if __name__ == "__main__":
