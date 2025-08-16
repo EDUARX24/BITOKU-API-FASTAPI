@@ -16,7 +16,15 @@ from app.api.v1.endpoints.auth import users
 from app.api.v1.endpoints.paciente import paciente
 
 # Instancia principal de la aplicación
-app = FastAPI()
+app = FastAPI(
+    title="Bitoku API",
+    description="API para la gestión de Bitoku.",
+    version="1.0.0",
+    contact={
+        "name": "Soporte de Bitoku",
+        "email": "soporte@bitoku.com"
+    }
+)
 
 # Registro de routers para endpoints de usuarios y autenticación
 app.include_router(users.router, prefix="/api/auth", tags=["User"])
