@@ -15,7 +15,11 @@ from fastapi import FastAPI
 from app.api.v1.endpoints.auth import users
 from app.api.v1.endpoints.paciente import paciente
 from app.api.v1.endpoints.doctor import doctor
+from app.api.v1.endpoints.citamedica import citaMedica
 
+from fastapi import FastAPI, status
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 
 # Instancia principal de la aplicación
 app = FastAPI(
@@ -28,10 +32,18 @@ app = FastAPI(
     }
 )
 
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content={"detail": "Todos los campos son requeridos"}
+    )
+
 # Registro de routers para endpoints de usuarios y autenticación
 app.include_router(users.router, prefix="/api/auth", tags=["User"])
 app.include_router(paciente.router, prefix="/api/ptn", tags=["Paciente"])
 app.include_router(doctor.router, prefix="/api/doc", tags=["Doctor"])
+app.include_router(citaMedica.router, prefix="/api/cita", tags=["Cita Medica"])
 
 # Permite ejecutar con 'python app/main.py' directamente
 if __name__ == "__main__":

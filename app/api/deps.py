@@ -14,10 +14,14 @@ api_key_scheme = APIKeyHeader(
     description="JWT Authorization header using the Bearer scheme.\n\nEnter 'Bearer' [space] and then your token in the text input below.\n\nExample: 'Bearer 12345abcdef'\n\nName: Authorization\nIn: header"
 )
 
+
+from app.models.usuario.usuario import Usuario
+from app.db.session import SessionLocal
+
 def get_current_user(token: str = Security(api_key_scheme)):
     """
     Extrae y valida el usuario autenticado a partir del token JWT enviado en el header Authorization.
-    Permite el prefijo 'Bearer '. Lanza HTTP 401 si el token es inválido o falta.
+    Retorna un dict con idUsuario, nombreUsuario y rol.
     """
     if token is None:
         raise HTTPException(status_code=401, detail="Token de autenticación requerido")
@@ -28,7 +32,17 @@ def get_current_user(token: str = Security(api_key_scheme)):
         username: str = payload.get("sub")
         if username is None:
             raise HTTPException(status_code=401, detail="Token inválido")
-        return username
+        # Buscar usuario en la base de datos
+        db = SessionLocal()
+        user = db.query(Usuario).filter(Usuario.nombreUsuario == username).first()
+        db.close()
+        if not user:
+            raise HTTPException(status_code=401, detail="Usuario no encontrado")
+        return {
+            "idUsuario": user.idUsuario,
+            "nombreUsuario": user.nombreUsuario,
+            "rol": user.rol
+        }
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido")
 

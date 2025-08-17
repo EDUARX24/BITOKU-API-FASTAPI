@@ -9,9 +9,9 @@ router = APIRouter()
 
 #crear endpoint crear doctor relacionado con un usuario
 @router.post("/doctors", response_model=DoctorOut, status_code=status.HTTP_201_CREATED, tags=["Doctor"])
-def create_doctor(doctor: DoctorCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def create_doctor(doctor: DoctorCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     #buscar el usuario autenticado
-    usuario = db.query(Usuario).filter(Usuario.nombreUsuario == current_user).first()
+    usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     
@@ -36,9 +36,9 @@ def create_doctor(doctor: DoctorCreate, db: Session = Depends(get_db), current_u
 
 #endpoint eliminar doctor
 @router.delete("/doctors/{idDoctor}", status_code=status.HTTP_200_OK, tags=["Doctor"])
-def eliminar_doctor(idDoctor: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def eliminar_doctor(idDoctor: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     #buscar el usuario autenticado
-    usuario = db.query(Usuario).filter(Usuario.nombreUsuario == current_user).first()
+    usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
@@ -57,9 +57,9 @@ def eliminar_doctor(idDoctor: int, db: Session = Depends(get_db), current_user: 
 
 #endpoint actualizar doctor
 @router.put("/doctors/{idDoctor}", response_model=DoctorOut, status_code=status.HTTP_200_OK, tags=["Doctor"])
-def actualizar_doctor(idDoctor: int, doctor: DoctorCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def actualizar_doctor(idDoctor: int, doctor: DoctorCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     #buscar el usuario autenticado
-    usuario = db.query(Usuario).filter(Usuario.nombreUsuario == current_user).first()
+    usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
@@ -89,9 +89,9 @@ def doctores(
     pageSize: int = 0,
     pageNumber: int = 1,
     db: Session = Depends(get_db),
-    current_username: str = Security(get_current_user)
+    current_user: dict = Security(get_current_user)
 ):
-    usuario = db.query(Usuario).filter(Usuario.nombreUsuario == current_username).first()
+    usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
