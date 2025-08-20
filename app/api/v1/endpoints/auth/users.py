@@ -127,6 +127,11 @@ def list_users(pageSize: int = 0, pageNumber: int = 1,
 	Devuelve una lista de todos los usuarios registrados en la base de datos.
 	Requiere autenticación mediante token Bearer.
 	"""
+
+	#MOSTRAR TODOS LOS USUARIOS SOLO SI TIENEN EL ROL ADMINISTRADOR
+	if current_user["rol"] != "adm":
+		raise HTTPException(status_code=403, detail="No tiene permisos para acceder a esta información")
+
 	#agregar la paginacion
 	query = db.query(Usuario)
 

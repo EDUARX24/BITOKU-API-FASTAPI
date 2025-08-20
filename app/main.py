@@ -39,6 +39,7 @@ async def validation_exception_handler(request, exc):
         content={"detail": "Todos los campos son requeridos"}
     )
 
+
 # Registro de routers para endpoints de usuarios y autenticación
 app.include_router(users.router, prefix="/api/auth", tags=["User"])
 app.include_router(paciente.router, prefix="/api/ptn", tags=["Paciente"])
