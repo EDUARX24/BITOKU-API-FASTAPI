@@ -3,12 +3,13 @@ from sqlalchemy.orm import Session
 from app.schemas.paciente.paciente import PacienteCreate, PacienteOut
 from app.models.paciente.paciente import Paciente
 from app.models.usuario.usuario import Usuario
+from app.schemas.ApiResponse.response import ApiResponse
 from app.api.deps import get_current_user, get_db
 
 router = APIRouter()
 
 #endpoint crear paciente
-@router.post("/paciente",response_model=PacienteOut,status_code=status.HTTP_201_CREATED,tags=["Paciente"])
+@router.post("/paciente",response_model=ApiResponse,status_code=status.HTTP_201_CREATED,tags=["Paciente"])
 def paciente(paciente_in: PacienteCreate, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
     # Buscar el usuario autenticado
     usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
@@ -42,10 +43,18 @@ def paciente(paciente_in: PacienteCreate, db: Session = Depends(get_db), current
     db.add(nuevo_paciente)
     db.commit()
     db.refresh(nuevo_paciente)
-    return nuevo_paciente
+    # Transformar ORM -> Pydantic
+    paciente_out = PacienteOut.model_validate(nuevo_paciente, from_attributes=True)
+    return ApiResponse(
+        statusCode=201,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=["Perfil de paciente creado exitosamente"],
+        result=paciente_out
+    )
 
 #endpoint eliminar paciente, pasar el id del paciente
-@router.delete("/paciente/{idPaciente}",status_code=status.HTTP_200_OK,tags=["Paciente"])
+@router.delete("/paciente/{idPaciente}",response_model=ApiResponse,status_code=status.HTTP_200_OK,tags=["Paciente"])
 def eliminar_paciente(idPaciente: int, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
     """
     Elimina el perfil de paciente asociado al usuario autenticado.
@@ -64,10 +73,18 @@ def eliminar_paciente(idPaciente: int, db: Session = Depends(get_db), current_us
         raise HTTPException(status_code=404, detail="Perfil de paciente no encontrado")
     db.delete(paciente)
     db.commit()
-    return {"detail": "Perfil de paciente eliminado correctamente"}
+    # Transformar ORM -> Pydantic
+    paciente_out = PacienteOut.model_validate(paciente, from_attributes=True)
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=["Perfil de paciente eliminado correctamente"],
+        result=paciente_out
+    )
 
 #endpoint actualizar paciente, pasar el id del paciente, podra ser actualizado por los tres tipos de usuario
-@router.put("/paciente/{idPaciente}",response_model=PacienteOut,status_code=status.HTTP_200_OK,tags=["Paciente"])
+@router.put("/paciente/{idPaciente}",response_model=ApiResponse,status_code=status.HTTP_200_OK,tags=["Paciente"])
 def actualizar_paciente(idPaciente: int, paciente_in: PacienteCreate, db: Session = Depends(get_db), 
                         current_user: dict = Security(get_current_user)):
     # Buscar el usuario autenticado
@@ -91,12 +108,18 @@ def actualizar_paciente(idPaciente: int, paciente_in: PacienteCreate, db: Sessio
     paciente.sexo = paciente_in.sexo
     db.commit()
     db.refresh(paciente)
+    paciente_out = PacienteOut.model_validate(paciente, from_attributes=True)
     # paciente actualizado correctamente
-    return paciente
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=["Perfil de paciente actualizado correctamente"],
+        result=paciente_out
+    )
 
 #endpoint para listar todos los pacientes, solo para los roles de admin y doctor
-#con paginacion en el endpoint, no se mostrara el default valor en el endpoint
-@router.get("/pacientes", response_model=list[PacienteOut], status_code=status.HTTP_200_OK, tags=["Paciente"])
+@router.get("/pacientes", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Paciente"])
 def pacientes(pageSize: int = 0, pageNumber: int = 1, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
     # Buscar el usuario autenticado
     usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
@@ -113,4 +136,52 @@ def pacientes(pageSize: int = 0, pageNumber: int = 1, db: Session = Depends(get_
         query = query.offset(pageSize * (pageNumber - 1)).limit(pageSize)
 
     pacientes = query.all()
-    return pacientes
+    pacientes_out = [PacienteOut.model_validate(paciente, from_attributes=True) for paciente in pacientes]
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=[],
+        result=pacientes_out
+    )
+
+#endpoint actualizar por patch
+@router.patch("/paciente/{idPaciente}", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Paciente"])
+def actualizar_paciente_patch(idPaciente: int, paciente_in: PacienteCreate, db: Session = Depends(get_db), 
+                               current_user: dict = Security(get_current_user)):
+    # Buscar el usuario autenticado
+    usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    # Verificar que el usuario tenga rol adecuado
+    if usuario.rol not in ["ptn", "adm", "doc"]:
+        raise HTTPException(status_code=403, detail="No tiene permiso para actualizar el perfil de paciente")
+    # Buscar el perfil de paciente
+    paciente = db.query(Paciente).filter(Paciente.idPaciente == idPaciente).first()
+    #si el id del paciente no existe evitar actualizar
+    if not paciente:
+        raise HTTPException(status_code=404, detail="Perfil de paciente no encontrado")
+    # Actualizar los datos del perfil de paciente
+    if paciente_in.nombrePaciente:
+        paciente.nombrePaciente = paciente_in.nombrePaciente
+    if paciente_in.apellidoPaciente:
+        paciente.apellidoPaciente = paciente_in.apellidoPaciente
+    if paciente_in.cedula:
+        paciente.cedula = paciente_in.cedula
+    if paciente_in.telefono:
+        paciente.telefono = paciente_in.telefono
+    if paciente_in.fechaNacimiento:
+        paciente.fechaNacimiento = paciente_in.fechaNacimiento
+    if paciente_in.sexo:
+        paciente.sexo = paciente_in.sexo
+    db.commit()
+    db.refresh(paciente)
+    paciente_out = PacienteOut.model_validate(paciente, from_attributes=True)
+    # paciente actualizado correctamente
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=["Perfil de paciente actualizado correctamente"],
+        result=paciente_out
+    )
