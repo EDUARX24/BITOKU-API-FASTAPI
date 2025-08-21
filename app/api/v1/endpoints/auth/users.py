@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from jose import jwt, JWTError
 from datetime import datetime, timedelta
 from app.schemas.usuario import UsuarioCreate, UsuarioOut
+from app.schemas.ApiResponse.response import ApiResponse
 from app.models.usuario.usuario import Usuario
 from app.models.doctor.doctor import Doctor
 from app.models.paciente.paciente import Paciente
@@ -63,7 +64,7 @@ class LoginRequest(BaseModel):
 	password: str
 
 #endpoint para loguear
-@router.post("/Login", tags=["User"])
+@router.post("/Login", tags=["User"], response_model=ApiResponse)
 def login(login_req: LoginRequest, db: Session = Depends(get_db)):
 	user = db.query(Usuario).filter(Usuario.nombreUsuario == login_req.username).first()
 	if not user or not verify_password(login_req.password, user.contrasenia):
@@ -90,18 +91,18 @@ def login(login_req: LoginRequest, db: Session = Depends(get_db)):
 		user_data["has_doctor_profile"] = has_doctor_profile
 	elif user.rol == "ptn":
 		user_data["has_paciente_profile"] = has_paciente_profile
-	return {
-		"statusCode": 200,
-		"isSuccess": True,
-		"errorMessages": [],
-		"successMessages": [],
-		"result": {
+	return ApiResponse(
+		statusCode=200,
+		isSuccess=True,
+		errorMessages=[],
+		successMessages=[],
+		result={
 			"user": user_data,
 			"token": access_token
 		}
-	}
+	)
 #endpoint para crear un usuario
-@router.post("/Register", response_model=UsuarioOut, status_code=status.HTTP_201_CREATED, tags=["User"])
+@router.post("/Register", response_model=ApiResponse, status_code=status.HTTP_201_CREATED, tags=["User"])
 def register_user(user: UsuarioCreate, db: Session = Depends(get_db)):
 	db_user = db.query(Usuario).filter(Usuario.nombreUsuario == user.nombreUsuario).first()
 	if db_user:
@@ -115,19 +116,22 @@ def register_user(user: UsuarioCreate, db: Session = Depends(get_db)):
 	db.add(new_user)
 	db.commit()
 	db.refresh(new_user)
-	return new_user
+	# Convertir el ORM -> Pydantic (limpio)
+	new_user_data = UsuarioOut.model_validate(new_user, from_attributes=True)
+	return ApiResponse(
+		statusCode=201,
+		isSuccess=True,
+		errorMessages=[],
+		successMessages=["Usuario creado exitosamente"],
+		result=new_user_data
+	)
 
 # Endpoint para listar todos los usuarios registrados (requiere autenticación)
-@router.get("/List", response_model=list[UsuarioOut], tags=["User"])
+@router.get("/List", response_model=ApiResponse, tags=["User"])
 def list_users(pageSize: int = 0, pageNumber: int = 1,
 	db: Session = Depends(get_db),
-	current_user: str = Security(get_current_user)
+	current_user: dict = Security(get_current_user)
 ):
-	"""
-	Devuelve una lista de todos los usuarios registrados en la base de datos.
-	Requiere autenticación mediante token Bearer.
-	"""
-
 	#MOSTRAR TODOS LOS USUARIOS SOLO SI TIENEN EL ROL ADMINISTRADOR
 	if current_user["rol"] != "adm":
 		raise HTTPException(status_code=403, detail="No tiene permisos para acceder a esta información")
@@ -139,5 +143,12 @@ def list_users(pageSize: int = 0, pageNumber: int = 1,
 		query = query.offset(pageSize * (pageNumber - 1)).limit(pageSize)
 
 	users = query.all()
-	return users
-
+	# Mapeamos los usuarios a UsuarioOut
+	users_out = [UsuarioOut.model_validate(user, from_attributes=True) for user in users]
+	return ApiResponse(
+		statusCode=200,
+		isSuccess=True,
+		errorMessages=[],
+		successMessages=[],
+		result=users_out
+	)
