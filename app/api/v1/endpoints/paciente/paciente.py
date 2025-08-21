@@ -53,6 +53,63 @@ def paciente(paciente_in: PacienteCreate, db: Session = Depends(get_db), current
         result=paciente_out
     )
 
+#endpoint para listar todos los pacientes, solo para los roles de admin y doctor
+@router.get("/pacientes", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Paciente"])
+def pacientes(pageSize: int = 0, pageNumber: int = 1, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
+    # Buscar el usuario autenticado
+    usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    # Verificar que el usuario tenga rol adecuado
+    if usuario.rol not in ["adm", "doc"]:
+        raise HTTPException(status_code=403, detail="No tiene permiso para listar pacientes")
+    # Listar todos los pacientes
+    query = db.query(Paciente)
+
+    # solo aplicar paginación si pageSize > 0
+    if pageSize > 0:
+        query = query.offset(pageSize * (pageNumber - 1)).limit(pageSize)
+
+    pacientes = query.all()
+    pacientes_out = [PacienteOut.model_validate(paciente, from_attributes=True) for paciente in pacientes]
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=[],
+        result=pacientes_out
+    )
+
+#endpoint paciente por id para adm, paciente y doctor
+@router.get("/paciente/{idPaciente}", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Paciente"])
+def paciente_id(idPaciente: int, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
+    # Buscar el usuario autenticado
+    usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    # Verificar que el usuario tenga rol adecuado
+    if usuario.rol not in ["ptn", "adm", "doc"]:
+        raise HTTPException(status_code=403, detail="No tiene permiso para ver el perfil de paciente")
+    
+    #query base
+    query = db.query(Paciente).filter(Paciente.idPaciente == idPaciente)
+    
+    if usuario.rol == "ptn":
+        query = query.filter(Paciente.usuarioID == usuario.idUsuario)
+    # Buscar el perfil de paciente
+    paciente = query.first()
+    if not paciente:
+        raise HTTPException(status_code=404, detail="Perfil de paciente no encontrado")
+    # Transformar ORM -> Pydantic
+    paciente_out = PacienteOut.model_validate(paciente, from_attributes=True)
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=[],
+        result=paciente_out
+    )
+
 #endpoint eliminar paciente, pasar el id del paciente
 @router.delete("/paciente/{idPaciente}",response_model=ApiResponse,status_code=status.HTTP_200_OK,tags=["Paciente"])
 def eliminar_paciente(idPaciente: int, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
@@ -116,33 +173,6 @@ def actualizar_paciente(idPaciente: int, paciente_in: PacienteCreate, db: Sessio
         errorMessages=[],
         successMessages=["Perfil de paciente actualizado correctamente"],
         result=paciente_out
-    )
-
-#endpoint para listar todos los pacientes, solo para los roles de admin y doctor
-@router.get("/pacientes", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Paciente"])
-def pacientes(pageSize: int = 0, pageNumber: int = 1, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
-    # Buscar el usuario autenticado
-    usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
-    if not usuario:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    # Verificar que el usuario tenga rol adecuado
-    if usuario.rol not in ["adm", "doc"]:
-        raise HTTPException(status_code=403, detail="No tiene permiso para listar pacientes")
-    # Listar todos los pacientes
-    query = db.query(Paciente)
-
-    # solo aplicar paginación si pageSize > 0
-    if pageSize > 0:
-        query = query.offset(pageSize * (pageNumber - 1)).limit(pageSize)
-
-    pacientes = query.all()
-    pacientes_out = [PacienteOut.model_validate(paciente, from_attributes=True) for paciente in pacientes]
-    return ApiResponse(
-        statusCode=200,
-        isSuccess=True,
-        errorMessages=[],
-        successMessages=[],
-        result=pacientes_out
     )
 
 #endpoint actualizar por patch

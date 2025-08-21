@@ -58,7 +58,7 @@ def crear_cita_medica(cita_in: CitaMedicaCreate, db: Session = Depends(get_db), 
 
 #endpoints citas para pacientes
 @router.get("/citas-paciente", response_model=list[CitaMedicaOut], tags=["Cita Medica"])
-def  listar_citas_paciente(pageSize: int = 0, pageNumber: int = 1, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
+def  listar_citas(pageSize: int = 0, pageNumber: int = 1, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
     paciente = db.query(Paciente).filter(Paciente.usuarioID == current_user["idUsuario"]).first()
     if not paciente:
         raise HTTPException(status_code=404, detail="Paciente no encontrado")
@@ -78,7 +78,7 @@ def  listar_citas_paciente(pageSize: int = 0, pageNumber: int = 1, db: Session =
 
 #endpoint para las citas de un paciente - idPaciente
 @router.get("/citas-paciente/{id_paciente}", response_model=list[CitaMedicaOut], tags=["Cita Medica"])
-def  listar_citas_paciente(id_paciente: int, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
+def  citas_paciente_id(id_paciente: int, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
 
     #verificar el id del paciente sea valido o int
     if not isinstance(id_paciente, int):
