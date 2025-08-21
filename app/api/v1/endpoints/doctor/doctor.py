@@ -3,12 +3,13 @@ from sqlalchemy.orm import Session
 from app.schemas.doctor.doctor import DoctorCreate, DoctorOut
 from app.models.doctor.doctor import Doctor
 from app.models.usuario.usuario import Usuario
+from app.schemas.ApiResponse.response import ApiResponse
 from app.api.deps import get_current_user, get_db
 
 router = APIRouter()
 
 #crear endpoint crear doctor relacionado con un usuario
-@router.post("/doctors", response_model=DoctorOut, status_code=status.HTTP_201_CREATED, tags=["Doctor"])
+@router.post("/doctors", response_model=ApiResponse, status_code=status.HTTP_201_CREATED, tags=["Doctor"])
 def create_doctor(doctor: DoctorCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     #buscar el usuario autenticado
     usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
@@ -32,10 +33,50 @@ def create_doctor(doctor: DoctorCreate, db: Session = Depends(get_db), current_u
     db.add(new_doctor)
     db.commit()
     db.refresh(new_doctor)
-    return new_doctor
+    #orm - schema
+    doctor_out = DoctorOut.model_validate(new_doctor, from_attributes=True)
+    return ApiResponse(
+        statusCode=201,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=["Doctor creado exitosamente"],
+        result=doctor_out
+    )
+
+#endpoint get doctor por id y que sea el autenticado
+@router.get("/doctors/{idDoctor}", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Doctor"])
+def get_doctor(idDoctor: int, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
+    usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    if usuario.rol not in ["doc", "adm"]:
+        raise HTTPException(status_code=403, detail="No tienes permiso para obtener un doctor")
+    
+    # Query base
+    query = db.query(Doctor).filter(Doctor.idDoctor == idDoctor)
+
+    # Si es doctor, solo puede ver su propio registro
+    if usuario.rol == "doc":
+        query = query.filter(Doctor.usuarioID == usuario.idUsuario)
+
+    doctor = query.first()
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor no encontrado")
+
+    doctor_out = DoctorOut.model_validate(doctor, from_attributes=True)
+
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=[],
+        result=doctor_out
+    )
+
 
 #endpoint eliminar doctor
-@router.delete("/doctors/{idDoctor}", status_code=status.HTTP_200_OK, tags=["Doctor"])
+@router.delete("/doctors/{idDoctor}",response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Doctor"])
 def eliminar_doctor(idDoctor: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     #buscar el usuario autenticado
     usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
@@ -53,10 +94,17 @@ def eliminar_doctor(idDoctor: int, db: Session = Depends(get_db), current_user: 
 
     db.delete(doctor)
     db.commit()
-    return {"detail": "Doctor eliminado exitosamente"}
+    doctor_out = DoctorOut.model_validate(doctor, from_attributes=True)
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=["Doctor eliminado exitosamente"],
+        result=doctor_out
+    )
 
 #endpoint actualizar doctor
-@router.put("/doctors/{idDoctor}", response_model=DoctorOut, status_code=status.HTTP_200_OK, tags=["Doctor"])
+@router.put("/doctors/{idDoctor}", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Doctor"])
 def actualizar_doctor(idDoctor: int, doctor: DoctorCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     #buscar el usuario autenticado
     usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
@@ -81,10 +129,17 @@ def actualizar_doctor(idDoctor: int, doctor: DoctorCreate, db: Session = Depends
     existing_doctor.sexo = doctor.sexo
     db.commit()
     db.refresh(existing_doctor)
-    return existing_doctor
+    doctor_out = DoctorOut.model_validate(existing_doctor, from_attributes=True)
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=["Doctor actualizado exitosamente"],
+        result=doctor_out
+    )
 
 #endpoint listar doctor
-@router.get("/doctors", response_model=list[DoctorOut], status_code=status.HTTP_200_OK, tags=["Doctor"])
+@router.get("/doctors", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Doctor"])
 def doctores(
     pageSize: int = 0,
     pageNumber: int = 1,
@@ -104,4 +159,11 @@ def doctores(
         query = query.offset(pageSize * (pageNumber - 1)).limit(pageSize)
 
     doctores = query.all()
-    return doctores
+    doctores_out = [DoctorOut.model_validate(doctor, from_attributes=True) for doctor in doctores]
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=[],
+        result=doctores_out
+    )
