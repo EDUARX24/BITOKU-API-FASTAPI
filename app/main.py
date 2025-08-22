@@ -34,9 +34,14 @@ app = FastAPI(
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):
-    return JSONResponse(
+     if request.method == "PATCH":
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"detail": exc.errors()}  # muestra errores reales en PATCH
+        )
+     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
-        content={"detail": "Todos los campos son requeridos"}
+        content={"detail": "Todos los campos son requeridos"}  # solo en POST/PUT
     )
 
 

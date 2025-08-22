@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Security, Path
 from sqlalchemy.orm import Session
 from app.schemas import usuario
 from app.schemas.citamedica.citamedica import CitaMedicaCreate, CitaMedicaOut
+from app.schemas.ApiResponse.response import ApiResponse
 from app.models.citamedica.citamedica import CitaMedica
 from app.models.paciente.paciente import Paciente
 from app.models.usuario.usuario import Usuario
@@ -12,7 +13,7 @@ router = APIRouter()
 
 
 #endpoint crear cita medica, solo para el rol ptn
-@router.post("/cita-medica", response_model=CitaMedicaOut, status_code=status.HTTP_201_CREATED, tags=["Cita Medica"])
+@router.post("/cita-medica", response_model=ApiResponse, status_code=status.HTTP_201_CREATED, tags=["Cita Medica"])
 def crear_cita_medica(cita_in: CitaMedicaCreate, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
     print(current_user)
 
@@ -53,18 +54,31 @@ def crear_cita_medica(cita_in: CitaMedicaCreate, db: Session = Depends(get_db), 
     db.add(nueva_cita)
     db.commit()
     db.refresh(nueva_cita)
+    cita_out = CitaMedicaOut.model_validate(nueva_cita, from_attributes=True)
 
-    return nueva_cita
+    return ApiResponse(
+        statusCode=201,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=["Cita médica creada exitosamente"],
+        result=cita_out
+    )
+
 
 #endpoints citas para pacientes
-@router.get("/citas-paciente", response_model=list[CitaMedicaOut], tags=["Cita Medica"])
+@router.get("/citas-paciente", response_model=ApiResponse, tags=["Cita Medica"])
 def  listar_citas(pageSize: int = 0, pageNumber: int = 1, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
-    paciente = db.query(Paciente).filter(Paciente.usuarioID == current_user["idUsuario"]).first()
-    if not paciente:
-        raise HTTPException(status_code=404, detail="Paciente no encontrado")
 
-    #listar todas las citas medicas con la paginacion
-    query = db.query(CitaMedica).filter(CitaMedica.pacienteID == paciente.idPaciente)
+    #buscar usuario autenticado
+    usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    #verificar rol adm - doc
+    if usuario.rol not in ["adm", "doc"]:
+        raise HTTPException(status_code=403, detail="No tiene permisos para acceder a las citas médicas")
+
+    query = db.query(CitaMedica)
 
     # solo aplicar paginación si pageSize > 0
     if pageSize > 0:
@@ -72,33 +86,51 @@ def  listar_citas(pageSize: int = 0, pageNumber: int = 1, db: Session = Depends(
 
     #consultar citas
     citas = query.all()
-    
-    return citas
+
+    citas_out = [CitaMedicaOut.model_validate(cita, from_attributes=True) for cita in citas]
+
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=["Citas médicas obtenidas exitosamente"],
+        result=citas_out
+    )
 
 
 #endpoint para las citas de un paciente - idPaciente
-@router.get("/citas-paciente/{id_paciente}", response_model=list[CitaMedicaOut], tags=["Cita Medica"])
+#podran verlas doctores,pacientes, doctores
+@router.get("/citas-paciente/{id_paciente}", response_model=ApiResponse, tags=["Cita Medica"])
 def  citas_paciente_id(id_paciente: int, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
+    # Buscar el usuario autenticado
+    usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
 
-    #verificar el id del paciente sea valido o int
-    if not isinstance(id_paciente, int):
-        raise HTTPException(status_code=400, detail="ID de paciente inválido")
-
+    # Verificar que el usuario tenga rol adecuado
+    if usuario.rol not in ["ptn", "adm", "doc"]:
+        raise HTTPException(status_code=403, detail="No tiene permiso para ver las citas")
+    
     paciente = db.query(Paciente).filter(Paciente.idPaciente == id_paciente).first()
     if not paciente:
-        raise HTTPException(status_code=404, detail="Paciente no encontrado")
+        raise HTTPException(status_code=404, detail="Paciente no encontrado o No Existe")
     
 
     citas = db.query(CitaMedica).filter(CitaMedica.pacienteID == paciente.idPaciente).all()
-
      #si el paciente no tiene citas medicas mostrar mensaje
     if not citas:
         raise HTTPException(status_code=404, detail="No se encontraron citas médicas para el paciente")
 
-    return citas
+    citas_out = [CitaMedicaOut.model_validate(cita, from_attributes=True) for cita in citas]
+
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=["Citas médicas obtenidas exitosamente"],
+        result=citas_out
+    )
 
 #endpoint para actualizar cita medica
-@router.put("/cita-medica/{id_cita}", response_model=CitaMedicaOut, status_code=status.HTTP_200_OK, tags=["Cita Medica"])
+@router.put("/cita-medica/{id_cita}", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Cita Medica"])
 def actualizar_cita(id_cita: int, cita_in: CitaMedicaCreate, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
     #verificar que el usuario actual es un paciente
     if current_user["rol"] != "ptn":
@@ -125,10 +157,18 @@ def actualizar_cita(id_cita: int, cita_in: CitaMedicaCreate, db: Session = Depen
     db.commit()
     db.refresh(cita)
 
-    return cita
+    cita_out = CitaMedicaOut.model_validate(cita, from_attributes=True)
+
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=["Cita médica actualizada exitosamente"],
+        result=cita_out
+    )
 
 #endpoint para actualizar por patch
-@router.patch("/cita-medica/{id_cita}", response_model=CitaMedicaOut, status_code=status.HTTP_200_OK, tags=["Cita Medica"])
+@router.patch("/cita-medica/{id_cita}", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Cita Medica"])
 def actualizar_cita_parcial(id_cita: int, cita_in: CitaMedicaCreate, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
     #verificar que el usuario actual es un paciente
     if current_user["rol"] != "ptn":
@@ -158,10 +198,18 @@ def actualizar_cita_parcial(id_cita: int, cita_in: CitaMedicaCreate, db: Session
     db.commit()
     db.refresh(cita)
 
-    return cita
+    cita_out = CitaMedicaOut.model_validate(cita, from_attributes=True)
+
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=["Cita médica actualizada exitosamente"],
+        result=cita_out
+    )
 
 #endpoint para eliminar las citas
-@router.delete("/cita-medica/{id_cita}", status_code=status.HTTP_204_NO_CONTENT, tags=["Cita Medica"])
+@router.delete("/cita-medica/{id_cita}", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Cita Medica"])
 def eliminar_cita(id_cita: int, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
     #verificar que el usuario actual es un paciente
     if current_user["rol"] != "ptn":
@@ -183,4 +231,11 @@ def eliminar_cita(id_cita: int, db: Session = Depends(get_db), current_user: dic
     db.delete(cita)
     db.commit()
 
-    return {"detail": "Cita médica eliminada"}
+    cita_out = CitaMedicaOut.model_validate(cita, from_attributes=True)
+    return ApiResponse(
+        statusCode=204,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=["Cita médica eliminada exitosamente"],
+        result=cita_out
+    )
