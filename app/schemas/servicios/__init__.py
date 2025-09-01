@@ -1,1 +1,1 @@
-from .servicios import ServiciosBase, ServiciosCreate, ServiciosOut
+from .servicios import ServiciosBase, ServiciosCreate, ServiciosOut, ServiciosUpdate

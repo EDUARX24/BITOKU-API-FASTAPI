@@ -11,11 +11,13 @@ from app.models.app import App
 from app.models.apf import Apf
 from app.models.expediente import Expediente
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from app.schemas.ApiResponse.response import ApiResponse
 from app.api.v1.endpoints.auth import users
 from app.api.v1.endpoints.paciente import paciente
 from app.api.v1.endpoints.doctor import doctor
 from app.api.v1.endpoints.citamedica import citaMedica
+from app.api.v1.endpoints.servicios import servicios
 
 from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
@@ -33,15 +35,19 @@ app = FastAPI(
 )
 
 @app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request, exc):
-     if request.method == "PATCH":
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={"detail": exc.errors()}  # muestra errores reales en PATCH
-        )
-     return JSONResponse(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        content={"detail": "Todos los campos son requeridos"}  # solo en POST/PUT
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    # Mapear errores de Pydantic a mensajes legibles
+    error_messages = [f"{'.'.join(str(i) for i in err['loc'])}: {err['msg']}" for err in exc.errors()]
+
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=ApiResponse(
+            statusCode=422,
+            isSuccess=False,
+            errorMessages=error_messages,
+            successMessages=[],
+            result=None
+        ).dict()
     )
 
 
@@ -50,6 +56,7 @@ app.include_router(users.router, prefix="/api/auth", tags=["User"])
 app.include_router(paciente.router, prefix="/api/ptn", tags=["Paciente"])
 app.include_router(doctor.router, prefix="/api/doc", tags=["Doctor"])
 app.include_router(citaMedica.router, prefix="/api/cita", tags=["Cita Medica"])
+app.include_router(servicios.router, prefix="/api/servicios", tags=["Servicios"])
 
 # Permite ejecutar con 'python app/main.py' directamente
 if __name__ == "__main__":
