@@ -1,15 +1,17 @@
 from pydantic import BaseModel
 from datetime import date
 from typing import Optional
+from typing import List
 
 class ConsultaBase(BaseModel):
     valoracion: str
     fechaConsulta: date
     citaID: int
-    doctorID: int
+    # doctorID: int
 
 class ConsultaCreate(ConsultaBase):
-    pass
+    servicios: List[int]
+
 
 class ConsultaOut(ConsultaBase):
     idConsulta: int
