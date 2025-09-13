@@ -1,4 +1,4 @@
-
+import logging
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
@@ -28,9 +28,13 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
 	return encoded_jwt
 
 def login_user(login_req, db: Session):
+	#agregar logging para seguimiento de errores
+	logger = logging.getLogger("user_service.login_user")
 	user = db.query(Usuario).filter(Usuario.nombreUsuario == login_req.username).first()
 	if not user or not verify_password(login_req.password, user.contrasenia):
+		logger.warning(f"Intento de login fallido para usuario: {login_req.username}")
 		raise Exception("Usuario o contraseña incorrectos")
+	logger.info(f"Login exitoso para usuario: {login_req.username}")
 	access_token = create_access_token(data={"sub": user.nombreUsuario})
 
 	has_doctor_profile = False
@@ -57,23 +61,29 @@ def login_user(login_req, db: Session):
 	}
 
 def register_user_service(user: UsuarioCreate, db: Session):
+	logger = logging.getLogger("user_service.register_user_service")
 	db_user = db.query(Usuario).filter(Usuario.nombreUsuario == user.nombreUsuario).first()
 	if db_user:
+		logger.warning(f"Intento de registro con usuario ya existente: {user.nombreUsuario}")
 		raise Exception("El usuario ya existe")
 	hashed_password = get_password_hash(user.contrasenia)
 	new_user = Usuario(nombreUsuario=user.nombreUsuario, contrasenia=hashed_password, rol=user.rol)
 	db.add(new_user)
 	db.commit()
 	db.refresh(new_user)
+	logger.info(f"Usuario registrado exitosamente: {user.nombreUsuario}")
 	new_user_data = UsuarioOut.model_validate(new_user, from_attributes=True)
 	return new_user_data
 
 def list_users_service(pageSize: int, pageNumber: int, db: Session, current_user: dict):
+	logger = logging.getLogger("user_service.list_users_service")
 	if current_user["rol"] != "adm":
+		logger.warning(f"Usuario sin permisos intentó listar usuarios: {current_user}")
 		raise Exception("No tiene permisos para acceder a esta información")
 	query = db.query(Usuario)
 	if pageSize > 0:
 		query = query.offset(pageSize * (pageNumber - 1)).limit(pageSize)
 	users = query.all()
 	users_out = [UsuarioOut.model_validate(user, from_attributes=True) for user in users]
+	logger.info(f"Usuarios listados por: {current_user['nombreUsuario']} (total: {len(users_out)})")
 	return users_out

@@ -11,6 +11,7 @@ from app.models.app import App
 from app.models.apf import Apf
 from app.models.expediente import Expediente
 
+import logging
 from fastapi import FastAPI, Request, status
 from app.schemas.ApiResponse.response import ApiResponse
 from app.api.v1.endpoints.auth import users
@@ -24,7 +25,17 @@ from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
-# Instancia principal de la aplicación
+
+# Configuración profesional de logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.FileHandler("bitoku_api.log"),
+        logging.StreamHandler()
+    ]
+)
+
 app = FastAPI(
     title="Bitoku API",
     description="API para la gestión de Bitoku.",
