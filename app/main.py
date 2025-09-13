@@ -1,3 +1,4 @@
+import logging
 # Importa todos los modelos para que SQLAlchemy registre las relaciones y cree las tablas correctamente
 from app.models.usuario import Usuario
 from app.models.paciente import Paciente
@@ -11,7 +12,6 @@ from app.models.app import App
 from app.models.apf import Apf
 from app.models.expediente import Expediente
 
-import logging
 from fastapi import FastAPI, Request, status
 from app.schemas.ApiResponse.response import ApiResponse
 from app.api.v1.endpoints.auth import users
@@ -25,7 +25,6 @@ from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
-
 # Configuración profesional de logging
 logging.basicConfig(
     level=logging.INFO,
@@ -36,6 +35,7 @@ logging.basicConfig(
     ]
 )
 
+# Instancia principal de la aplicación
 app = FastAPI(
     title="Bitoku API",
     description="API para la gestión de Bitoku.",
