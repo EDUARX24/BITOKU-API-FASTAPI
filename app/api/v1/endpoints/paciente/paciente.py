@@ -7,6 +7,13 @@ from app.schemas.ApiResponse.response import ApiResponse
 from app.api.deps import get_current_user, get_db
 import logging
 
+#librerias para exportar a excel
+import pandas as pd
+from io import BytesIO
+from fastapi.responses import StreamingResponse
+from openpyxl.styles import PatternFill, Font, Alignment
+from openpyxl.utils import get_column_letter
+
 router = APIRouter()
 
 #endpoint crear paciente
@@ -296,3 +303,89 @@ def actualizar_paciente_patch(idPaciente: int, paciente_in: PacienteCreate, db: 
     except Exception as e:
         logging.error(f"Error al actualizar el perfil de paciente: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error al actualizar el perfil de paciente: {str(e)}")
+    
+
+#endpoint para exportar a excel mis pacientes en sistema
+@router.get("/pacientes/export", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Paciente"])
+def exportar_pacientes_excel(  pageSize: int = 0,pageNumber: int = 1,db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
+    try:
+        # Configurar logger
+        logger = logging.getLogger("paciente.export")
+
+        # Verificar usuario
+        usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
+        if not usuario:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        if usuario.rol not in ["adm", "doc"]:
+            raise HTTPException(status_code=403, detail="No tiene permiso para exportar pacientes")
+
+        # Obtener pacientes
+        query = db.query(Paciente)
+        if pageSize > 0:
+            query = query.offset(pageSize * (pageNumber - 1)).limit(pageSize)
+        pacientes = query.all()
+
+        # Transformar ORM → lista de dicts (datos planos para Excel)
+        data = [
+            {
+                "ID": p.idPaciente,
+                "Nombre": p.nombrePaciente,
+                "Apellido": p.apellidoPaciente,
+                "Fecha Nacimiento": p.fechaNacimiento,
+                "Genero": p.sexo,
+                "Telefono": p.telefono,
+                "Cedula": p.cedula
+                # agrega aquí los campos que desees exportar
+            }
+            for p in pacientes
+        ]
+
+        df = pd.DataFrame(data)
+
+        # Crear Excel en memoria
+        stream = BytesIO()
+        with pd.ExcelWriter(stream, engine="openpyxl") as writer:
+            # Escribimos a partir de la fila 5 (header en fila 5 → startrow=4)
+            df.to_excel(writer, index=False, sheet_name="Pacientes", startrow=4)
+
+            # Estilos con openpyxl
+            wb = writer.book
+            ws = writer.sheets["Pacientes"]
+
+            # Fila 1 y 2: títulos centrados y en negrita
+            ws.merge_cells("A1:E1")
+            ws["A1"] = "CLÍNICA BITOKU"
+            ws["A1"].font = Font(bold=True, size=14)
+            ws["A1"].alignment = Alignment(horizontal="center")
+
+            ws.merge_cells("A2:E2")
+            ws["A2"] = "Listado de Pacientes"
+            ws["A2"].font = Font(bold=True, size=12)
+            ws["A2"].alignment = Alignment(horizontal="center")
+
+            # Fila 5: cabeceras con fondo gris y negrita
+            header_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+            header_font = Font(bold=True)
+            for col_num, cell in enumerate(ws[5], 1):  # fila 5 = encabezados
+                cell.fill = header_fill
+                cell.font = header_font
+                # autoajustar ancho de columna
+                col_letter = get_column_letter(col_num)
+                max_length = max(
+                    len(str(cell.value)) if cell.value else 0,
+                    *(len(str(r.value)) if r.value else 0 for r in ws[col_letter])
+                )
+                ws.column_dimensions[col_letter].width = max_length + 2
+
+        stream.seek(0)
+
+        logger.info(f"Pacientes exportados por {usuario.idUsuario} ({len(data)} registros)")
+
+        return StreamingResponse(
+            stream,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=pacientes.xlsx"}
+        )
+    except Exception as e:
+        logger.error(f"Error al exportar pacientes: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error al exportar pacientes: {str(e)}")
