@@ -1,19 +1,24 @@
-from pydantic import BaseModel
 from datetime import date
-from typing import Optional
-from typing import List
+
+from pydantic import BaseModel, ConfigDict
+
 
 class ConsultaBase(BaseModel):
     valoracion: str
     fechaConsulta: date
     citaID: int
-    # doctorID: int
+
 
 class ConsultaCreate(ConsultaBase):
-    servicios: List[int]
+    servicios: list[int]
+
+
+class ConsultaUpdate(BaseModel):
+    valoracion: str | None = None
+    fechaConsulta: date | None = None
 
 
 class ConsultaOut(ConsultaBase):
     idConsulta: int
-    class Config:
-        from_attributes = True
+    doctorID: int
+    model_config = ConfigDict(from_attributes=True)

@@ -1,391 +1,182 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Security
-from sqlalchemy.orm import Session
-from app.schemas.paciente.paciente import PacienteCreate, PacienteOut
-from app.models.paciente.paciente import Paciente
-from app.models.usuario.usuario import Usuario
-from app.schemas.ApiResponse.response import ApiResponse
-from app.api.deps import get_current_user, get_db
 import logging
-
-#librerias para exportar a excel
-import pandas as pd
 from io import BytesIO
-from fastapi.responses import StreamingResponse
-from openpyxl.styles import PatternFill, Font, Alignment
-from openpyxl.utils import get_column_letter
 
+import pandas as pd
+from fastapi import APIRouter, Depends, Query, Security, status
+from fastapi.responses import StreamingResponse
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_current_user, get_db
+from app.schemas.ApiResponse.response import ApiResponse
+from app.schemas.paciente.paciente import PacienteCreate, PacienteUpdate
+from app.services.paciente_service import (
+    create_paciente_service,
+    delete_paciente_service,
+    export_pacientes_rows_service,
+    get_paciente_service,
+    list_pacientes_service,
+    update_paciente_service,
+)
+
+
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
-#endpoint crear paciente
-@router.post("/paciente",response_model=ApiResponse,status_code=status.HTTP_201_CREATED,tags=["Paciente"])
-def paciente(paciente_in: PacienteCreate, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
-    logger = logging.getLogger("paciente.create")
-    try:
-        usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
 
-        if not usuario:
-            logger.warning(f"Usuario no encontrado: {current_user['idUsuario']}")
-            raise HTTPException(status_code=404, detail="Usuario no encontrado")
-        
-        if usuario.rol != "ptn":
-            logger.warning(f"Usuario sin rol paciente intentó crear perfil: {usuario.idUsuario}")
-            raise HTTPException(status_code=403, detail="Solo los usuarios con rol 'paciente' pueden completar este perfil")
-        
-        paciente_existente = db.query(Paciente).filter(Paciente.usuarioID == usuario.idUsuario).first()
+@router.post("/paciente", response_model=ApiResponse, status_code=status.HTTP_201_CREATED, tags=["Paciente"])
+def paciente(
+    paciente_in: PacienteCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Security(get_current_user),
+):
+    paciente_out = create_paciente_service(paciente_in, db, current_user)
+    return ApiResponse(
+        statusCode=201,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=["Perfil de paciente creado exitosamente"],
+        result=paciente_out,
+    )
 
-        if paciente_existente:
-            logger.warning(f"Intento de duplicado de perfil paciente para usuario: {usuario.idUsuario}")
-            raise HTTPException(status_code=400, detail="El perfil de paciente ya está completo")
-        
-        if not paciente_in.nombrePaciente or not paciente_in.apellidoPaciente:
-            logger.warning(f"Datos obligatorios faltantes para usuario: {usuario.idUsuario}")
-            raise HTTPException(status_code=400, detail="Nombre y apellido son obligatorios")
-        
-        # Crear el perfil de paciente
-        nuevo_paciente = Paciente(
-            usuarioID=usuario.idUsuario,
-            nombrePaciente=paciente_in.nombrePaciente,
-            apellidoPaciente=paciente_in.apellidoPaciente,
-            cedula=paciente_in.cedula,
-            telefono=paciente_in.telefono,
-            fechaNacimiento=paciente_in.fechaNacimiento,
-            sexo=paciente_in.sexo
-        )
-        db.add(nuevo_paciente)
-        db.commit()
-        db.refresh(nuevo_paciente)
-        paciente_out = PacienteOut.model_validate(nuevo_paciente, from_attributes=True)
 
-        # Log de creación de perfil
-        logger.info(f"Perfil de paciente creado exitosamente para usuario: {usuario.idUsuario}")
-
-        return ApiResponse(
-            statusCode=201,
-            isSuccess=True,
-            errorMessages=[],
-            successMessages=["Perfil de paciente creado exitosamente"],
-            result=paciente_out
-        )
-    except Exception as e:
-        logger.error(f"Error al crear el perfil de paciente: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error al crear el perfil de paciente: {str(e)}")
-
-#endpoint para listar todos los pacientes, solo para los roles de admin y doctor
 @router.get("/pacientes", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Paciente"])
-def pacientes(pageSize: int = 0, pageNumber: int = 1, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
-    try:
-        # Configurar logger
-        logger = logging.getLogger("paciente.list")
-
-        # Buscar el usuario autenticado
-        usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
-
-        # Validar que el usuario tenga rol adecuado
-        if not usuario:
-            logger.warning(f"Usuario no encontrado: {current_user['idUsuario']}")
-            raise HTTPException(status_code=404, detail="Usuario no encontrado")
-        if usuario.rol not in ["adm", "doc"]:
-            logger.warning(f"Usuario sin permisos intentó listar pacientes: {usuario.idUsuario}")
-            raise HTTPException(status_code=403, detail="No tiene permiso para listar pacientes")
-        
-        # Listar pacientes con paginación
-        query = db.query(Paciente)
-        if pageSize > 0:
-            query = query.offset(pageSize * (pageNumber - 1)).limit(pageSize)
-        pacientes = query.all()
-
-        # Transformar ORM -> Pydantic
-        pacientes_out = [PacienteOut.model_validate(paciente, from_attributes=True) for paciente in pacientes]
-
-        # Log de pacientes listados
-        logger.info(f"Pacientes listados por usuario: {usuario.idUsuario, usuario.nombreUsuario, usuario.rol} (total: {len(pacientes_out)})")
-
-        # Retornar respuesta
-        return ApiResponse(
-            statusCode=200,
-            isSuccess=True,
-            errorMessages=[],
-            successMessages=[],
-            result=pacientes_out
-        )
-    except Exception as e:
-        logger.error(f"Error al listar pacientes: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error al listar pacientes: {str(e)}")
+def pacientes(
+    pageSize: int = Query(0, ge=0),
+    pageNumber: int = Query(1, ge=1),
+    db: Session = Depends(get_db),
+    current_user: dict = Security(get_current_user),
+):
+    pacientes_out = list_pacientes_service(pageSize, pageNumber, db, current_user)
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=[],
+        result=pacientes_out,
+    )
 
 
-#endpoint paciente por id para adm, paciente y doctor
 @router.get("/paciente/{idPaciente}", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Paciente"])
-def paciente_id(idPaciente: int, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
-    # Configurar logger
-    logger = logging.getLogger("paciente.get_by_id")
-    try:
-        # Buscar el usuario autenticado
-        usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
-        if not usuario:
-            logger.warning(f"Usuario no encontrado: {current_user['idUsuario']}")
-            raise HTTPException(status_code=404, detail="Usuario no encontrado")
-        # Verificar que el usuario tenga rol adecuado
-        if usuario.rol not in ["ptn", "adm", "doc"]:
-            logger.warning(f"Usuario sin permisos intentó ver paciente: {usuario.idUsuario}")
-            raise HTTPException(status_code=403, detail="No tiene permiso para ver el perfil de paciente")
-        
-        #query base
-        query = db.query(Paciente).filter(Paciente.idPaciente == idPaciente)
-        
-        if usuario.rol == "ptn":
-            query = query.filter(Paciente.usuarioID == usuario.idUsuario)
-        # Buscar el perfil de paciente
-        paciente = query.first()
-        
-        if not paciente:
-            logger.warning(f"Perfil de paciente no encontrado: {idPaciente}")
-            raise HTTPException(status_code=404, detail="Perfil de paciente no encontrado")
-        # Transformar ORM -> Pydantic
-        paciente_out = PacienteOut.model_validate(paciente, from_attributes=True)
-
-        # Log de paciente obtenido
-        logger.info(f"Perfil de paciente obtenido: {idPaciente} por usuario: {usuario.idUsuario}")
-        return ApiResponse(
-            statusCode=200,
-            isSuccess=True,
-            errorMessages=[],
-            successMessages=[],
-            result=paciente_out
-        )
-    except Exception as e:
-        logging.error(f"Error al obtener el perfil de paciente: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error al obtener el perfil de paciente: {str(e)}")
-
-#endpoint eliminar paciente, pasar el id del paciente
-@router.delete("/paciente/{idPaciente}",response_model=ApiResponse,status_code=status.HTTP_200_OK,tags=["Paciente"])
-def eliminar_paciente(idPaciente: int, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
-    try:
-        # Configurar logger
-        logger = logging.getLogger("paciente.delete")
-
-        # Buscar el usuario autenticado
-        usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
-
-        if not usuario:
-            logger.warning(f"Usuario no encontrado: {current_user['idUsuario']}")
-            raise HTTPException(status_code=404, detail="Usuario no encontrado")
-        # Verificar que el usuario tenga rol adecuado
-        if usuario.rol not in ["doc", "adm"]:
-            logger.warning(f"Usuario sin permisos intentó eliminar paciente: {usuario.idUsuario}")
-            raise HTTPException(status_code=403, detail="Solo los usuarios con rol 'doctor' o 'admin' pueden eliminar su perfil de paciente")
-        
-        # Buscar el perfil de paciente
-        paciente = db.query(Paciente).filter(Paciente.idPaciente == idPaciente).first()
-        #si el id del paciente no existe evitar eliminar
-        if not paciente:
-            logger.warning(f"Perfil de paciente no encontrado: {idPaciente}")
-            raise HTTPException(status_code=404, detail="Perfil de paciente no encontrado")
-        db.delete(paciente)
-        db.commit()
-        # Transformar ORM -> Pydantic
-        paciente_out = PacienteOut.model_validate(paciente, from_attributes=True)
-        # Log de paciente eliminado
-        logger.info(f"Perfil de paciente eliminado: {idPaciente} por usuario: {usuario.idUsuario}")
-        return ApiResponse(
-            statusCode=200,
-            isSuccess=True,
-            errorMessages=[],
-            successMessages=["Perfil de paciente eliminado correctamente"],
-            result=paciente_out
-        )
-    except Exception as e:
-        logging.error(f"Error al eliminar el perfil de paciente: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error al eliminar el perfil de paciente: {str(e)}")
-
-#endpoint actualizar paciente, pasar el id del paciente, podra ser actualizado por los tres tipos de usuario
-@router.put("/paciente/{idPaciente}",response_model=ApiResponse,status_code=status.HTTP_200_OK,tags=["Paciente"])
-def actualizar_paciente(idPaciente: int, paciente_in: PacienteCreate, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
-    try:
-        # Configurar logger
-        logger = logging.getLogger("paciente.update")
-
-        # Buscar el usuario autenticado
-        usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
-        if not usuario:
-            logger.warning(f"Usuario no encontrado: {current_user['idUsuario']}")
-            raise HTTPException(status_code=404, detail="Usuario no encontrado")
-        # Verificar que el usuario tenga rol adecuado
-        if usuario.rol not in ["ptn", "adm", "doc"]:
-            logger.warning(f"Usuario sin permisos intentó actualizar paciente: {usuario.idUsuario}")
-            raise HTTPException(status_code=403, detail="No tiene permiso para actualizar el perfil de paciente")
-        
-        # Buscar el perfil de paciente
-        paciente = db.query(Paciente).filter(Paciente.idPaciente == idPaciente).first()
-
-        #si el id del paciente no existe evitar actualizar
-        if not paciente:
-            logger.warning(f"Perfil de paciente no encontrado: {idPaciente}")   
-            raise HTTPException(status_code=404, detail="Perfil de paciente no encontrado")
-        # Actualizar los datos del perfil de paciente
-        paciente.nombrePaciente = paciente_in.nombrePaciente
-        paciente.apellidoPaciente = paciente_in.apellidoPaciente
-        paciente.cedula = paciente_in.cedula
-        paciente.telefono = paciente_in.telefono
-        paciente.fechaNacimiento = paciente_in.fechaNacimiento
-        paciente.sexo = paciente_in.sexo
-        db.commit()
-        db.refresh(paciente)
-        paciente_out = PacienteOut.model_validate(paciente, from_attributes=True)
-
-        # paciente actualizado correctamente
-        logger.info(f"Perfil de paciente actualizado: {idPaciente} por usuario: {usuario.idUsuario}")
-        return ApiResponse(
-            statusCode=200,
-            isSuccess=True,
-            errorMessages=[],
-            successMessages=["Perfil de paciente actualizado correctamente"],
-            result=paciente_out
-        )
-    except Exception as e:
-        logging.error(f"Error al actualizar el perfil de paciente: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error al actualizar el perfil de paciente: {str(e)}")
+def paciente_id(
+    idPaciente: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Security(get_current_user),
+):
+    paciente_out = get_paciente_service(idPaciente, db, current_user)
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=[],
+        result=paciente_out,
+    )
 
 
-#endpoint actualizar por patch
+@router.delete("/paciente/{idPaciente}", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Paciente"])
+def eliminar_paciente(
+    idPaciente: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Security(get_current_user),
+):
+    paciente_out = delete_paciente_service(idPaciente, db, current_user)
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=["Perfil de paciente eliminado correctamente"],
+        result=paciente_out,
+    )
+
+
+@router.put("/paciente/{idPaciente}", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Paciente"])
+def actualizar_paciente(
+    idPaciente: int,
+    paciente_in: PacienteCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Security(get_current_user),
+):
+    paciente_out = update_paciente_service(
+        idPaciente,
+        paciente_in,
+        db,
+        current_user,
+        partial=False,
+    )
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=["Perfil de paciente actualizado correctamente"],
+        result=paciente_out,
+    )
+
+
 @router.patch("/paciente/{idPaciente}", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Paciente"])
-def actualizar_paciente_patch(idPaciente: int, paciente_in: PacienteCreate, db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
-    try:
-        # Configurar logger
-        logger = logging.getLogger("paciente.update_patch")
+def actualizar_paciente_patch(
+    idPaciente: int,
+    paciente_in: PacienteUpdate,
+    db: Session = Depends(get_db),
+    current_user: dict = Security(get_current_user),
+):
+    paciente_out = update_paciente_service(
+        idPaciente,
+        paciente_in,
+        db,
+        current_user,
+        partial=True,
+    )
+    return ApiResponse(
+        statusCode=200,
+        isSuccess=True,
+        errorMessages=[],
+        successMessages=["Perfil de paciente actualizado correctamente"],
+        result=paciente_out,
+    )
 
-        # Buscar el usuario autenticado
-        usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
-        
-        if not usuario:
-            logger.warning(f"Usuario no encontrado: {current_user['idUsuario']}")
-            raise HTTPException(status_code=404, detail="Usuario no encontrado")
-        # Verificar que el usuario tenga rol adecuado
-        if usuario.rol not in ["ptn", "adm", "doc"]:
-            logger.warning(f"Usuario sin permisos intentó actualizar paciente: {usuario.idUsuario}")
-            raise HTTPException(status_code=403, detail="No tiene permiso para actualizar el perfil de paciente")
-        
-        # Buscar el perfil de paciente
-        paciente = db.query(Paciente).filter(Paciente.idPaciente == idPaciente).first()
 
-        #si el id del paciente no existe evitar actualizar
-        if not paciente:
-            logger.warning(f"Perfil de paciente no encontrado: {idPaciente}")   
-            raise HTTPException(status_code=404, detail="Perfil de paciente no encontrado")
-        
-        # Actualizar los datos del perfil de paciente
-        if paciente_in.nombrePaciente:
-            paciente.nombrePaciente = paciente_in.nombrePaciente
-        if paciente_in.apellidoPaciente:
-            paciente.apellidoPaciente = paciente_in.apellidoPaciente
-        if paciente_in.cedula:
-            paciente.cedula = paciente_in.cedula
-        if paciente_in.telefono:
-            paciente.telefono = paciente_in.telefono
-        if paciente_in.fechaNacimiento:
-            paciente.fechaNacimiento = paciente_in.fechaNacimiento
-        if paciente_in.sexo:
-            paciente.sexo = paciente_in.sexo
+@router.get("/pacientes/export", status_code=status.HTTP_200_OK, tags=["Paciente"])
+def exportar_pacientes_excel(
+    pageSize: int = Query(0, ge=0),
+    pageNumber: int = Query(1, ge=1),
+    db: Session = Depends(get_db),
+    current_user: dict = Security(get_current_user),
+):
+    data = export_pacientes_rows_service(pageSize, pageNumber, db, current_user)
+    df = pd.DataFrame(data)
 
-        db.commit()
-        db.refresh(paciente)
-        paciente_out = PacienteOut.model_validate(paciente, from_attributes=True)
+    stream = BytesIO()
+    with pd.ExcelWriter(stream, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Pacientes", startrow=4)
 
-        # Log de información
-        logger.info(f"Perfil de paciente actualizado: {idPaciente} por usuario: {usuario.idUsuario}")
-        # paciente actualizado correctamente
-        return ApiResponse(
-            statusCode=200,
-            isSuccess=True,
-            errorMessages=[],
-            successMessages=["Perfil de paciente actualizado correctamente"],
-            result=paciente_out
-        )
-    except Exception as e:
-        logging.error(f"Error al actualizar el perfil de paciente: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error al actualizar el perfil de paciente: {str(e)}")
-    
+        ws = writer.sheets["Pacientes"]
+        ws.merge_cells("A1:E1")
+        ws["A1"] = "CLÍNICA BITOKU"
+        ws["A1"].font = Font(bold=True, size=14)
+        ws["A1"].alignment = Alignment(horizontal="center")
 
-#endpoint para exportar a excel mis pacientes en sistema
-@router.get("/pacientes/export", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Paciente"])
-def exportar_pacientes_excel(  pageSize: int = 0,pageNumber: int = 1,db: Session = Depends(get_db), current_user: dict = Security(get_current_user)):
-    try:
-        # Configurar logger
-        logger = logging.getLogger("paciente.export")
+        ws.merge_cells("A2:E2")
+        ws["A2"] = "Listado de Pacientes"
+        ws["A2"].font = Font(bold=True, size=12)
+        ws["A2"].alignment = Alignment(horizontal="center")
 
-        # Verificar usuario
-        usuario = db.query(Usuario).filter(Usuario.idUsuario == current_user["idUsuario"]).first()
-        if not usuario:
-            raise HTTPException(status_code=404, detail="Usuario no encontrado")
-        if usuario.rol not in ["adm", "doc"]:
-            raise HTTPException(status_code=403, detail="No tiene permiso para exportar pacientes")
+        header_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+        header_font = Font(bold=True)
+        for col_num, cell in enumerate(ws[5], 1):
+            cell.fill = header_fill
+            cell.font = header_font
+            col_letter = get_column_letter(col_num)
+            max_length = max(
+                len(str(cell.value)) if cell.value else 0,
+                *(len(str(row.value)) if row.value else 0 for row in ws[col_letter]),
+            )
+            ws.column_dimensions[col_letter].width = max_length + 2
 
-        # Obtener pacientes
-        query = db.query(Paciente)
-        if pageSize > 0:
-            query = query.offset(pageSize * (pageNumber - 1)).limit(pageSize)
-        pacientes = query.all()
-
-        # Transformar ORM → lista de dicts (datos planos para Excel)
-        data = [
-            {
-                "ID": p.idPaciente,
-                "Nombre": p.nombrePaciente,
-                "Apellido": p.apellidoPaciente,
-                "Fecha Nacimiento": p.fechaNacimiento,
-                "Genero": p.sexo,
-                "Telefono": p.telefono,
-                "Cedula": p.cedula
-                # agrega aquí los campos que desees exportar
-            }
-            for p in pacientes
-        ]
-
-        df = pd.DataFrame(data)
-
-        # Crear Excel en memoria
-        stream = BytesIO()
-        with pd.ExcelWriter(stream, engine="openpyxl") as writer:
-            # Escribimos a partir de la fila 5 (header en fila 5 → startrow=4)
-            df.to_excel(writer, index=False, sheet_name="Pacientes", startrow=4)
-
-            # Estilos con openpyxl
-            wb = writer.book
-            ws = writer.sheets["Pacientes"]
-
-            # Fila 1 y 2: títulos centrados y en negrita
-            ws.merge_cells("A1:E1")
-            ws["A1"] = "CLÍNICA BITOKU"
-            ws["A1"].font = Font(bold=True, size=14)
-            ws["A1"].alignment = Alignment(horizontal="center")
-
-            ws.merge_cells("A2:E2")
-            ws["A2"] = "Listado de Pacientes"
-            ws["A2"].font = Font(bold=True, size=12)
-            ws["A2"].alignment = Alignment(horizontal="center")
-
-            # Fila 5: cabeceras con fondo gris y negrita
-            header_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
-            header_font = Font(bold=True)
-            for col_num, cell in enumerate(ws[5], 1):  # fila 5 = encabezados
-                cell.fill = header_fill
-                cell.font = header_font
-                # autoajustar ancho de columna
-                col_letter = get_column_letter(col_num)
-                max_length = max(
-                    len(str(cell.value)) if cell.value else 0,
-                    *(len(str(r.value)) if r.value else 0 for r in ws[col_letter])
-                )
-                ws.column_dimensions[col_letter].width = max_length + 2
-
-        stream.seek(0)
-
-        logger.info(f"Pacientes exportados por {usuario.idUsuario} ({len(data)} registros)")
-
-        return StreamingResponse(
-            stream,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": "attachment; filename=pacientes.xlsx"}
-        )
-    except Exception as e:
-        logger.error(f"Error al exportar pacientes: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error al exportar pacientes: {str(e)}")
+    stream.seek(0)
+    logger.info("Pacientes exportados por %s (%s registros)", current_user["idUsuario"], len(data))
+    return StreamingResponse(
+        stream,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=pacientes.xlsx"},
+    )

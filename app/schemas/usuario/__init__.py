@@ -1,1 +1,1 @@
-from .usuario import UsuarioBase, UsuarioCreate, UsuarioOut
+from .usuario import LoginRequest, UsuarioBase, UsuarioCreate, UsuarioOut

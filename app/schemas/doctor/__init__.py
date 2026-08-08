@@ -1,1 +1,1 @@
-from .doctor import DoctorBase, DoctorCreate, DoctorOut
+from .doctor import DoctorBase, DoctorCreate, DoctorOut, DoctorUpdate

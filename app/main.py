@@ -1,77 +1,110 @@
 import logging
-# Importa todos los modelos para que SQLAlchemy registre las relaciones y cree las tablas correctamente
-from app.models.usuario import Usuario
-from app.models.paciente import Paciente
-from app.models.doctor import Doctor
-from app.models.citamedica import CitaMedica
-from app.models.servicios import Servicios
-from app.models.consulta import Consulta
-from app.models.cons_serv import ConsServ
-from app.models.receta import Receta
-from app.models.app import App
-from app.models.apf import Apf
-from app.models.expediente import Expediente
 
-from fastapi import FastAPI, Request, status
-from app.schemas.ApiResponse.response import ApiResponse
-from app.api.v1.endpoints.auth import users
-from app.api.v1.endpoints.paciente import paciente
-from app.api.v1.endpoints.doctor import doctor
-from app.api.v1.endpoints.citamedica import citaMedica
-from app.api.v1.endpoints.servicios import servicios
-from app.api.v1.endpoints.consulta import consulta
-
-from fastapi import FastAPI, status
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-# Configuración profesional de logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.FileHandler("bitoku_api.log"),
-        logging.StreamHandler()
-    ]
-)
+import app.db.models  # noqa: F401
+from app.api.router import api_router
+from app.core.config import settings
+from app.schemas.ApiResponse.response import ApiResponse
 
-# Instancia principal de la aplicación
-app = FastAPI(
-    title="Bitoku API",
-    description="API para la gestión de Bitoku.",
-    version="1.0.0",
-    contact={
-        "name": "Soporte de Bitoku",
-        "email": "eduarfrancis11@gmail.com"
-    }
-)
 
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    # Mapear errores de Pydantic a mensajes legibles
-    error_messages = [f"{'.'.join(str(i) for i in err['loc'])}: {err['msg']}" for err in exc.errors()]
+def configure_logging() -> None:
+    if logging.getLogger().handlers:
+        return
 
-    return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content=ApiResponse(
-            statusCode=422,
-            isSuccess=False,
-            errorMessages=error_messages,
-            successMessages=[],
-            result=None
-        ).dict()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            logging.FileHandler("bitoku_api.log"),
+            logging.StreamHandler(),
+        ],
     )
 
 
-# Registro de routers de los endpoints
-app.include_router(users.router, prefix="/api/auth", tags=["User"])
-app.include_router(paciente.router, prefix="/api/ptn", tags=["Paciente"])
-app.include_router(doctor.router, prefix="/api/doc", tags=["Doctor"])
-app.include_router(citaMedica.router, prefix="/api/cita", tags=["Cita Medica"])
-app.include_router(servicios.router, prefix="/api/servicios", tags=["Servicios"])
-app.include_router(consulta.router, prefix="/api/consulta", tags=["Consulta"])
+def build_api_response(status_code: int, errors: list[str]) -> JSONResponse:
+    payload = ApiResponse(
+        statusCode=status_code,
+        isSuccess=False,
+        errorMessages=errors,
+        successMessages=[],
+        result=None,
+    )
+    return JSONResponse(status_code=status_code, content=payload.model_dump())
+
+
+configure_logging()
+logger = logging.getLogger(__name__)
+
+# Instancia principal de la aplicación
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    description="API para la gestión de Bitoku.",
+    version=settings.APP_VERSION,
+    contact={
+        "name": "Soporte de Bitoku",
+        "email": "eduarfrancis11@gmail.com"
+    },
+    docs_url="/docs" if settings.ENABLE_DOCS else None,
+    redoc_url="/redoc" if settings.ENABLE_DOCS else None,
+    openapi_url="/openapi.json" if settings.ENABLE_DOCS else None,
+)
+
+cors_origin_regex = settings.local_dev_cors_regex
+
+if settings.BACKEND_CORS_ORIGINS or cors_origin_regex:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.BACKEND_CORS_ORIGINS,
+        allow_origin_regex=cors_origin_regex,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    detail = exc.detail
+    if isinstance(detail, list):
+        errors = [str(item) for item in detail]
+    else:
+        errors = [str(detail)]
+    return build_api_response(exc.status_code, errors)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    error_messages = [f"{'.'.join(str(i) for i in err['loc'])}: {err['msg']}" for err in exc.errors()]
+    return build_api_response(status.HTTP_422_UNPROCESSABLE_ENTITY, error_messages)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled exception while processing %s", request.url.path)
+    if settings.ENV == "prod":
+        errors = ["Error interno del servidor"]
+    else:
+        errors = [str(exc), type(exc).__name__]
+    return build_api_response(status.HTTP_500_INTERNAL_SERVER_ERROR, errors)
+
+
+app.include_router(api_router)
+
+
+@app.get("/health", tags=["Health"])
+async def healthcheck():
+    return {
+        "status": "ok",
+        "environment": settings.ENV,
+        "version": settings.APP_VERSION,
+    }
 
 # Permite ejecutar con 'python app/main.py' directamente
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

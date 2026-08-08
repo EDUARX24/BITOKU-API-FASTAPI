@@ -1,1 +1,1 @@
-from .citamedica import CitaMedicaBase, CitaMedicaCreate, CitaMedicaOut
+from .citamedica import CitaMedicaBase, CitaMedicaCreate, CitaMedicaOut, CitaMedicaUpdate
