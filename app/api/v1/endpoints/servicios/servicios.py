@@ -50,11 +50,7 @@ def obtener_servicios(
 
 
 @router.get("/servicios/{servicio_id}", response_model=ApiResponse, status_code=status.HTTP_200_OK, tags=["Servicios"])
-def obtener_servicio(
-    servicio_id: int,
-    db: Session = Depends(get_db),
-    current_user: dict = Security(get_current_user),
-):
+def obtener_servicio(servicio_id: int,db: Session = Depends(get_db),current_user: dict = Security(get_current_user),):
     servicio_out = get_servicio_service(servicio_id, db, current_user)
     return ApiResponse(
         statusCode=200,
