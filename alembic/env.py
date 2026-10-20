@@ -22,22 +22,28 @@ def get_engine_args():
     raw_url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
     auth_token = os.getenv("TURSO_AUTH_TOKEN")
     connect_args = {}
-    clean_url = raw_url
 
-    if raw_url and "?" in raw_url:
-        clean_url, query_str = raw_url.split("?", 1)
+    # Asegurar que conserve siempre el dialecto válido sqlite+libsql://
+    if raw_url.startswith("sqlite+https://"):
+        raw_url = raw_url.replace("sqlite+https://", "sqlite+libsql://", 1)
+
+    # Extraer el token si viniera en la query string
+    if "?" in raw_url:
+        base_url, query_str = raw_url.split("?", 1)
         params = urllib.parse.parse_qs(query_str)
         if not auth_token:
             auth_token = params.get("authToken", params.get("auth_token", [None]))[0]
 
-    # Forzar HTTPS para evitar el error 308 Permanent Redirect de Turso
-    if clean_url.startswith("sqlite+libsql://"):
-        clean_url = clean_url.replace("sqlite+libsql://", "sqlite+https://", 1)
+        # Garantizar que secure=true permanezca en la URL para evitar el 308 redirect
+        final_url = f"{base_url}?secure=true"
+    else:
+        final_url = f"{raw_url}?secure=true"
 
     if auth_token:
+        # Solo auth_token se pasa al conector DBAPI
         connect_args["auth_token"] = auth_token
 
-    return clean_url, connect_args
+    return final_url, connect_args
 
 
 def run_migrations_offline() -> None:
