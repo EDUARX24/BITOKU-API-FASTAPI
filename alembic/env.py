@@ -30,6 +30,10 @@ def get_engine_args():
         if not auth_token:
             auth_token = params.get("authToken", params.get("auth_token", [None]))[0]
 
+    # Forzar HTTPS para evitar el error 308 Permanent Redirect de Turso
+    if clean_url.startswith("sqlite+libsql://"):
+        clean_url = clean_url.replace("sqlite+libsql://", "sqlite+https://", 1)
+
     if auth_token:
         connect_args["auth_token"] = auth_token
 
