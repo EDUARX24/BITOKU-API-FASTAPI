@@ -1,4 +1,4 @@
-
+import os
 from urllib.parse import parse_qs, urlsplit
 
 import libsql
@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
+
 
 class LibsqlConnectionProxy:
     def __init__(self, connection):
@@ -21,10 +22,17 @@ class LibsqlConnectionProxy:
 def create_libsql_connection():
     parsed_url = urlsplit(settings.DATABASE_URL)
     query = parse_qs(parsed_url.query)
-    token = query.get("authToken", [None])[0]
+    
+    # Busca en TURSO_AUTH_TOKEN primero, o en los parámetros de la URL como fallback
+    token = (
+        settings.TURSO_AUTH_TOKEN
+        or os.getenv("TURSO_AUTH_TOKEN")
+        or query.get("authToken", [None])[0]
+        or query.get("auth_token", [None])[0]
+    )
 
     if not parsed_url.hostname or not token:
-        raise ValueError("DATABASE_URL de Turso debe incluir host y authToken")
+        raise ValueError("DATABASE_URL de Turso debe incluir un host y disponer de un token de autenticación (TURSO_AUTH_TOKEN)")
 
     connection = libsql.connect(
         f"https://{parsed_url.hostname}",

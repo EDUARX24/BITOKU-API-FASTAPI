@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Bitoku API"
     API_V1_STR: str = "/api"
     DATABASE_URL: str
+    TURSO_AUTH_TOKEN: str | None = None
     SECRET_KEY: str = "change-me-in-env"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60

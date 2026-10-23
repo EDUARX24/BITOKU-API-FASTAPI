@@ -1,70 +1,59 @@
+import os
+import sys
+import urllib.parse
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
+from sqlalchemy import create_engine, pool
 from alembic import context
 
-
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
 config = context.config
 
-# Sobrescribir sqlalchemy.url con la variable de entorno DATABASE_URL si existe
-import os
-db_url = os.getenv("DATABASE_URL")
-if db_url:
-    config.set_main_option("sqlalchemy.url", db_url)
-
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-import sys
-import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from app.db.base import Base
-# from app.models.usuario import Usuario
-# from app.models.paciente import Paciente
-# from app.models.doctor import Doctor
-# from app.models.citamedica import CitaMedica
-# from app.models.servicios import Servicios
-# from app.models.consulta import Consulta
-# from app.models.cons_serv import ConsServ
-# from app.models.receta import Receta
-# from app.models.app import App
-# from app.models.apf import Apf
-# from app.models.expediente import Expediente
-from app.db.models import *  # esto cargará todos los modelos
+from app.db.models import *
+
 target_metadata = Base.metadata
 
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
+
+def get_engine_args():
+    raw_url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+    auth_token = os.getenv("TURSO_AUTH_TOKEN")
+    connect_args = {}
+
+    # Asegurar que conserve siempre el dialecto válido sqlite+libsql://
+    if raw_url.startswith("sqlite+https://"):
+        raw_url = raw_url.replace("sqlite+https://", "sqlite+libsql://", 1)
+
+    # Extraer el token si viniera en la query string
+    if "?" in raw_url:
+        base_url, query_str = raw_url.split("?", 1)
+        params = urllib.parse.parse_qs(query_str)
+        if not auth_token:
+            auth_token = params.get("authToken", params.get("auth_token", [None]))[0]
+
+        # Garantizar que secure=true permanezca en la URL para evitar el 308 redirect
+        final_url = f"{base_url}?secure=true"
+    else:
+        final_url = f"{raw_url}?secure=true"
+
+    if auth_token:
+        # Solo auth_token se pasa al conector DBAPI
+        connect_args["auth_token"] = auth_token
+
+    return final_url, connect_args
 
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode.
-
-    This configures the context with just a URL
-    and not an Engine, though an Engine is acceptable
-    here as well.  By skipping the Engine creation
-    we don't even need a DBAPI to be available.
-
-    Calls to context.execute() here emit the given string to the
-    script output.
-
-    """
-    url = config.get_main_option("sqlalchemy.url")
+    url, _ = get_engine_args()
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        render_as_batch=True,
     )
 
     with context.begin_transaction():
@@ -72,21 +61,19 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
+    url, connect_args = get_engine_args()
 
-    In this scenario we need to create an Engine
-    and associate a connection with the context.
-
-    """
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    connectable = create_engine(
+        url,
+        connect_args=connect_args,
         poolclass=pool.NullPool,
     )
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            render_as_batch=True,
         )
 
         with context.begin_transaction():
